@@ -1,80 +1,68 @@
-import { ec, encode, TypedData, Signer, typedData, WeierstrassSignatureType } from 'starknet';
+import { Account, ec, encode, TypedData, Signer, typedData, WeierstrassSignatureType, RpcProvider, cairo } from 'starknet';
 
 async function main() {
-    //--------------------------------------------------------------------------
-    // Account
-    //--------------------------------------------------------------------------
-    const privateKey = '0x1234567890987654321';
-
+    const provider = new RpcProvider({ nodeUrl: 'https://starknet-sepolia.g.alchemy.com/starknet/version/rpc/v0_7/Tl9Eoq7xWPNCz3TCvW1HQ381lmKIMeFpc' });
+    const privateKey = '0xa711f973af75cfb5813b26c80e092312ead9180ef1a8bc7b327c9b6d8e88e9';
     const starknetPublicKey = ec.starkCurve.getStarkKey(privateKey);
+    const signer = new Signer(privateKey);
+    const account = new Account(provider, starknetPublicKey, privateKey);
 
     const fullPublicKey = encode.addHexPrefix(
         encode.buf2hex(ec.starkCurve.getPublicKey(privateKey, false))
     );
+    const Y = encode.addHexPrefix(fullPublicKey.slice(68));
 
-    const pubX = starknetPublicKey
-    const pubY = encode.addHexPrefix(fullPublicKey.slice(68))
+    console.log("Full public key: ", fullPublicKey)
+    console.log("Coordinates of the public key: x=", starknetPublicKey, ", y=", Y)
 
-    console.log("Account:")
-    console.log("\tprivate key: ", privateKey)
-    // 0x1234567890987654321
-    console.log("\tFull (uncompressed) public key: ", fullPublicKey)
-    // 0x4020c29f1c98f3320d56f01c13372c923123c35828bce54f2153aa1cfe61c44f2018277bc1bc80570f859cb882ca70d52f1a0e06275e5dd704dddbbe19faadf
-    console.log("\tCoordinates of the public key: x=", pubX, ", y=", pubY)
-    // x=0x20c29f1c98f3320d56f01c13372c923123c35828bce54f2153aa1cfe61c44f2, y=0x18277bc1bc80570f859cb882ca70d52f1a0e06275e5dd704dddbbe19faadf
-    console.log("\tStarknet public key: ", starknetPublicKey, " (= x-coordinate of the public key)")
-    // 0x20c29f1c98f3320d56f01c13372c923123c35828bce54f2153aa1cfe61c44f2
-
-    //--------------------------------------------------------------------------
-    // Message
-    //--------------------------------------------------------------------------
-
-    const messageStructure: TypedData = {
+    const lockMessage: TypedData = {
         types: {
             StarkNetDomain: [
                 { name: "name", type: "felt" },
                 { name: "chainId", type: "felt" },
                 { name: "version", type: "felt" },
             ],
-            Message: [{ name: "message", type: "felt" }],
+            Message: [
+                { name: "Id", type: "u256" },
+                { name: "hashlock", type: "u256" },
+                { name: "timelock", type: "u64" },
+            ],
+            u256: [
+                { name: "low", type: "felt" },
+                { name: "high", type: "felt" },
+            ],
         },
         primaryType: "Message",
         domain: {
-            name: "MyDapp",
-            chainId: "SN_MAIN",
-            version: "0.0.1",
+            name: "LayerswapV8",
+            chainId: "StarkNet",
+            version: "1",
         },
         message: {
-            message: "hello world!",
+            Id: {
+                low: '0xb779a0b9221ccf812563255c8b37b38e',
+                high: '0x725175f0914ba625971f8bc39c90bec1',
+            },
+            hashlock: {
+                low: '0x064a62282e241f27696c475a0fbece39',
+                high: '0x0eaa55cd755940d5fd1466fcbd515999',
+            },
+            timelock: 232145342212,
         },
     };
 
-    const messageHash = typedData.getMessageHash(messageStructure, BigInt(starknetPublicKey))
+    const messageHash = typedData.getMessageHash(lockMessage, BigInt(starknetPublicKey));
+    console.log("Message hash: ", messageHash);
 
-    console.log("\nMessage:")
-    console.log("\tMessage hash: ", messageHash)
-    // 0x197093614bca282524e6b8f77de8f7dd9a9dd92ed4ea7f4f2b17f95e2bc441d
+    const signature = (await signer.signMessage(lockMessage, starknetPublicKey)) as WeierstrassSignatureType;
+    const isValid = ec.starkCurve.verify(signature, messageHash, fullPublicKey);
+    // const signature2 = (await account.signMessage(lockMessage)) as WeierstrassSignatureType;
+    // const result = await account.verifyMessage(lockMessage, signature2);
+    // const result2 = await account.verifyMessageHash(messageHash, signature2);
 
-    //--------------------------------------------------------------------------
-    // Signature
-    //--------------------------------------------------------------------------
-
-    const signer = new Signer(privateKey)
-
-    let signature: WeierstrassSignatureType;
-    try {
-        signature = (await signer.signMessage(messageStructure, starknetPublicKey)) as WeierstrassSignatureType
-    } catch (error) {
-        console.error("Error signing the message:", error);
-        throw error;
-    }
-
-    const isValid = ec.starkCurve.verify(signature, messageHash, fullPublicKey)
-
-    console.log("\nSignature:")
-    console.log("\tSignature: ", signature)
-    // r=0x59e1a24dc86990b8c1210d6e18d5641e6b94828d595b0d98279052f013e9945, s=0x72a50af8139178dddbb4b34ef2567fa78dcd44df8307cc47a2e39a6090e46eb
-    console.log("\tSignature is valid: ", isValid)
-    // true
+    console.log(signature)
+    console.log("Signature is valid: ", isValid)
+    // console.log(signature2)
+    // console.log("result is valid: ", result)
 }
 main()
